@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: pg_gateway
+    environment:
+      POSTGRES_DB: payment_gateway
+      POSTGRES_USER: gateway_user
+      POSTGRES_PASSWORD: gateway_pass
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gateway_user -d payment_gateway"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+    container_name: gateway_api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/payment_gateway
+      DB_USER: gateway_user
+      DB_PASS: gateway_pass
+      PORT: 8000
+    depends_on:
+      postgres:
+        condition: service_healthy

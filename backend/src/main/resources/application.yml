@@ -1,0 +1,17 @@
+server:
+  port: 8000
+
+spring:
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DB_USER}
+    password: ${DB_PASS}
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
