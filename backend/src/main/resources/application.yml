@@ -3,9 +3,9 @@ server:
 
 spring:
   datasource:
-    url: ${DATABASE_URL}
-    username: ${DB_USER}
-    password: ${DB_PASS}
+    url: jdbc:postgresql://postgres:5432/payment_gateway
+    username: gateway_user
+    password: gateway_pass
 
   jpa:
     hibernate:

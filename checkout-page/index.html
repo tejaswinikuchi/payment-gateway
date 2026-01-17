@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Checkout</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f6f6f6;
+      margin: 0;
+      padding: 40px;
+    }
+
+    .container {
+      max-width: 500px;
+      margin: auto;
+      background: #fff;
+      padding: 30px;
+      border-radius: 6px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.08);
+    }
+
+    h2 {
+      margin-top: 0;
+    }
+
+    input, button {
+      width: 100%;
+      padding: 12px;
+      margin-top: 10px;
+      font-size: 14px;
+    }
+
+    button {
+      background: #000;
+      color: #fff;
+      border: none;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: #444;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .status {
+      margin-top: 20px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+
+<body>
+<div class="container" data-test-id="checkout-container">
+
+  <!-- ORDER INPUT -->
+  <h2>Checkout</h2>
+
+  <label>Order ID</label>
+  <input
+    id="order-id-input"
+    data-test-id="order-id-input"
+    placeholder="order_xxx"
+  />
+
+  <button
+    type="button"
+    onclick="fetchOrder()"
+  >
+    Fetch Order
+  </button>
+
+  <!-- ORDER SUMMARY -->
+  <div id="order-summary" class="hidden" data-test-id="order-summary">
+    <p>
+      Amount:
+      <strong data-test-id="order-amount" id="order-amount"></strong>
+    </p>
+  </div>
+
+  <!-- PAYMENT METHODS -->
+  <div id="payment-methods" class="hidden" data-test-id="payment-methods">
+    <button
+      type="button"
+      class="secondary"
+      data-test-id="method-upi"
+      onclick="showUPI()"
+    >
+      UPI
+    </button>
+
+    <button
+      type="button"
+      class="secondary"
+      data-test-id="method-card"
+      onclick="showCard()"
+    >
+      Card
+    </button>
+  </div>
+
+  <!-- UPI FORM -->
+  <form id="upi-form" class="hidden" data-test-id="upi-form" onsubmit="payUPI(event)">
+    <input
+      data-test-id="vpa-input"
+      placeholder="username@bank"
+      id="vpa-input"
+    />
+    <button data-test-id="pay-button">Pay</button>
+  </form>
+
+  <!-- CARD FORM -->
+  <form id="card-form" class="hidden" data-test-id="card-form" onsubmit="payCard(event)">
+    <input data-test-id="card-number-input" placeholder="Card Number" id="card-number" />
+    <input data-test-id="expiry-input" placeholder="MM/YYYY" id="expiry" />
+    <input data-test-id="cvv-input" placeholder="CVV" id="cvv" />
+    <input data-test-id="cardholder-name-input" placeholder="Name on Card" id="name" />
+    <button data-test-id="pay-button">Pay</button>
+  </form>
+
+  <!-- STATUS -->
+  <div id="status" class="status"></div>
+
+</div>
+
+<script>
+const API_BASE = "http://localhost:8000";
+let currentOrderId = null;
+
+/* ======================
+   FETCH ORDER
+====================== */
+async function fetchOrder() {
+  const orderId = document.getElementById("order-id-input").value.trim();
+  if (!orderId) {
+    alert("Enter Order ID");
+    return;
+  }
+
+  const res = await fetch(`${API_BASE}/api/v1/orders/${orderId}/public`);
+  if (!res.ok) {
+    alert("Order not found");
+    return;
+  }
+
+  const order = await res.json();
+  currentOrderId = order.id;
+
+  document.getElementById("order-amount").innerText =
+    "₹" + (order.amount / 100).toFixed(2);
+
+  document.getElementById("order-summary").classList.remove("hidden");
+  document.getElementById("payment-methods").classList.remove("hidden");
+}
+
+/* ======================
+   UI HELPERS
+====================== */
+function showUPI() {
+  document.getElementById("upi-form").classList.remove("hidden");
+  document.getElementById("card-form").classList.add("hidden");
+}
+
+function showCard() {
+  document.getElementById("card-form").classList.remove("hidden");
+  document.getElementById("upi-form").classList.add("hidden");
+}
+
+/* ======================
+   PAY UPI
+====================== */
+async function payUPI(e) {
+  e.preventDefault();
+
+  const vpa = document.getElementById("vpa-input").value;
+
+  const res = await fetch(`${API_BASE}/api/v1/checkout/pay`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      order_id: currentOrderId,
+      method: "upi",
+      vpa: vpa
+    })
+  });
+
+  const data = await res.json();
+  document.getElementById("status").innerText =
+    "Payment Status: " + data.status;
+}
+
+/* ======================
+   PAY CARD
+====================== */
+async function payCard(e) {
+  e.preventDefault();
+
+  const [mm, yyyy] = document.getElementById("expiry").value.split("/");
+
+  const res = await fetch(`${API_BASE}/api/v1/checkout/pay`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      order_id: currentOrderId,
+      method: "card",
+      card: {
+        number: document.getElementById("card-number").value,
+        expiry_month: mm,
+        expiry_year: yyyy,
+        cvv: document.getElementById("cvv").value,
+        holder_name: document.getElementById("name").value
+      }
+    })
+  });
+
+  const data = await res.json();
+  document.getElementById("status").innerText =
+    "Payment Status: " + data.status;
+}
+</script>
+
+</body>
+</html>

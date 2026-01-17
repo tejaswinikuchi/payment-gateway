@@ -1,40 +1,34 @@
 package com.gateway.config;
 
-import jakarta.annotation.PostConstruct;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.stereotype.Component;
+import com.gateway.models.Merchant;
+import com.gateway.repositories.MerchantRepository;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
-@Component
+import java.util.UUID;
+
+@Configuration
 public class DataSeeder {
 
-    private final JdbcTemplate jdbcTemplate;
+    @Bean
+    CommandLineRunner seedMerchant(MerchantRepository merchantRepository) {
+        return args -> {
 
-    public DataSeeder(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
-    }
+            String testEmail = "test@example.com";
 
-    @PostConstruct
-    public void seedMerchant() {
-        String existsSql = "SELECT COUNT(*) FROM merchants WHERE email = ?";
-        Integer count = jdbcTemplate.queryForObject(
-                existsSql,
-                Integer.class,
-                "test@example.com"
-        );
+            if (merchantRepository.findByEmail(testEmail).isPresent()) {
+                return;
+            }
 
-        if (count != null && count == 0) {
-            jdbcTemplate.update("""
-                INSERT INTO merchants 
-                (id, name, email, api_key, api_secret, created_at, updated_at)
-                VALUES 
-                ('550e8400-e29b-41d4-a716-446655440000',
-                 'Test Merchant',
-                 'test@example.com',
-                 'key_test_abc123',
-                 'secret_test_xyz789',
-                 CURRENT_TIMESTAMP,
-                 CURRENT_TIMESTAMP)
-            """);
-        }
+            Merchant merchant = new Merchant();
+            merchant.setId(UUID.fromString("550e8400-e29b-41d4-a716-446655440000"));
+            merchant.setName("Test Merchant");
+            merchant.setEmail(testEmail);
+            merchant.setApiKey("key_test_abc123");
+            merchant.setApiSecret("secret_test_xyz789");
+
+            merchantRepository.save(merchant);
+        };
     }
 }
