@@ -9,16 +9,17 @@ import org.springframework.security.web.SecurityFilterChain;
 public class SecurityConfig {
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
 
         http
             .csrf(csrf -> csrf.disable())
             .formLogin(form -> form.disable())
             .httpBasic(basic -> basic.disable())
-            .exceptionHandling(ex -> ex.disable()) // 🔥 THIS FIXES EMPTY REPLY
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/health").permitAll()
-                .requestMatchers("/api/v1/**").permitAll()
+                .requestMatchers("/api/v1/test/**").permitAll()
+                .requestMatchers("/api/v1/orders/**").permitAll()
+                .requestMatchers("/api/v1/payments/**").permitAll()
                 .anyRequest().permitAll()
             );
 

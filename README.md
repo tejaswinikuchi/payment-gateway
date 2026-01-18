@@ -1,87 +1,211 @@
-# Payment Gateway – Backend (Deliverable 1)
+### Payment Gateway  - Full Stack Implementation
 
-This project implements the backend foundation of a payment gateway similar to Razorpay/Stripe.
+This project is a simplified payment gateway system built as part of an assignment.
+It demonstrates how a real-world payment gateway works, including merchant authentication, order creation, checkout flow, and payment processing.
 
-## ✅ Implemented Features
+The application is fully containerized using Docker and can be started with a single command.
 
-- Dockerized backend using Spring Boot + PostgreSQL
-- Single-command startup using `docker-compose up -d`
-- Auto-seeded test merchant on application startup
-- Secure order creation API with API key & secret authentication
-- UPI payment creation API
-- Correct database schema for merchants, orders, and payments
-- Proper foreign key relationships and indexes
-- Order & payment ID generation using required formats
-- Payment records stored with `processing` status
-- Database persistence verified
+## Overview
 
-## 🧪 Test Merchant (Auto-Seeded)
+The system allows a merchant to:
 
-Email: test@example.com
+Authenticate using API Key and API Secret
 
-API Key: key_test_abc123
-API Secret: secret_test_xyz789
+- Create orders
+
+- Accept payments through UPI or card
+
+- View merchant credentials on a dashboard
+
+It also provides a checkout page where customers can fetch an order and complete the payment.
+
+## System Architecture
+
+The project consists of the following components:
+
+- Backend API
+Built using Spring Boot.
+Handles authentication, order management, payment processing, and validations.
+
+- PostgreSQL Database
+Stores merchants, orders, and payments.
+Automatically initialized and seeded on startup.
+
+- Merchant Dashboard
+A static frontend served via Nginx.
+Displays merchant name and API credentials.
+
+- Checkout Page
+A static frontend served via Nginx.
+Used by customers to fetch an order and make payments.
+
+## Ports Used
+Service	                        Port
+Backend API	                    8000
+Merchant Dashboard	            3000
+Checkout Page	                3001
+PostgreSQL	                    5432
+
+## Test Merchant Credentials
+
+A test merchant is automatically created when the application starts.
+
+- Merchant Name: Test Merchant
+- API Key:       key_test_abc123
+- API Secret:    secret_test_xyz789
 
 
-## 🚀 How to Run
+These credentials are used for all authenticated API requests.
 
-```bash
-docker-compose up -d --build
+## Prerequisites
+
+- Docker
+
+- Docker Compose
+
+No other setup is required.
+
+## How to Run the Project
+
+From the project root directory:
+
+- docker-compose up -d
 
 
-API runs at: http://localhost:8000
+This command will:
 
-🔌 API Examples
-Create Order
-curl -X POST http://localhost:8000/api/v1/orders \
- -H "X-Api-Key: key_test_abc123" \
- -H "X-Api-Secret: secret_test_xyz789" \
- -H "Content-Type: application/json" \
- -d '{"amount":50000,"receipt":"demo"}'
+- Build all images
 
-Create UPI Payment
-curl -X POST http://localhost:8000/api/v1/payments \
- -H "Content-Type: application/json" \
- -d '{"order_id":"<ORDER_ID>","method":"upi","vpa":"user@paytm"}'
+- Start the backend API
 
-📦 Database Schema
+- Start PostgreSQL
 
-merchants
+- Start the dashboard
 
-orders
+- Start the checkout page
 
-payments
+Seed the database automatically
 
-All tables follow the required specification with proper constraints and indexes.
+## API Usage
+### Create an Order (Authenticated)
 
-⚠️ Scope of This Submission
-Implemented
+## Endpoint
 
-Backend API
+POST /api/v1/orders
 
-Order management
 
-UPI payment processing
+## Headers
 
-Dockerized deployment
+X-Api-Key: key_test_abc123
+X-Api-Secret: secret_test_xyz789
+Content-Type: application/json
 
-Planned (Next Deliverables)
 
-Card payment validation (Luhn, expiry, network)
+# Request Body
 
-Payment success/failure simulation
+{
+  "amount": 50000
+}
 
-Payment status polling
 
-Dashboard frontend
+# Response
 
-Hosted checkout page
+{
+  "id": "order_xxxxx",
+  "amount": 50000,
+  "currency": "INR",
+  "status": "created"
+}
 
-Public checkout APIs
+# Fetch Order (Public -  Used by Checkout)
 
-Test mode configuration
+# Endpoint
 
-📝 Notes
+GET /api/v1/orders/{order_id}
 
-This submission focuses on backend system correctness, database integrity, and containerized deployment.
-Frontend and advanced payment simulations will be completed in the next deliverable.
+
+No authentication headers are required.
+
+# Create Payment -  UPI
+
+# Endpoint
+
+POST /api/v1/payments
+
+
+# Headers
+
+X-Api-Key: key_test_abc123
+X-Api-Secret: secret_test_xyz789
+Content-Type: application/json
+
+
+# Request Body
+
+{
+  "order_id": "order_xxxxx",
+  "method": "upi",
+  "vpa": "user@paytm"
+}
+
+# Create Payment -  Card
+
+# Endpoint
+
+POST /api/v1/payments
+
+
+# Request Body
+
+{
+  "order_id": "order_xxxxx",
+  "method": "card",
+  "card": {
+    "number": "4111111111111111",
+    "expiry_month": "12",
+    "expiry_year": "2026",
+    "cvv": "123",
+    "holder_name": "John Doe"
+  }
+}
+
+
+Card validation includes:
+
+- Luhn algorithm
+
+- Network detection (Visa, Mastercard, Amex, RuPay)
+
+# Fetch Payment Status
+
+# Endpoint
+
+GET /api/v1/payments/{payment_id}
+
+
+# Headers
+
+X-Api-Key: key_test_abc123
+X-Api-Secret: secret_test_xyz789
+
+# Frontend Access
+
+- Merchant Dashboard:
+http://localhost:3000
+
+- Checkout Page:
+http://localhost:3001
+
+# Notes
+
+- All services are fully containerized.
+
+- No manual database setup is required.
+
+- Authentication is enforced using a custom API key filter.
+
+- Checkout endpoints are publicly accessible as required.
+
+# Conclusion
+
+This project demonstrates a complete end-to-end payment gateway flow, covering backend APIs, authentication, payment logic, and frontend integration, following real-world design principles.

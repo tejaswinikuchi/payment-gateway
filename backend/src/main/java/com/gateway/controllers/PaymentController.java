@@ -8,7 +8,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
 import java.util.regex.Pattern;
@@ -24,9 +23,6 @@ public class PaymentController {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    // =========================
-    // CREATE PAYMENT
-    // =========================
     @PostMapping
     public ResponseEntity<?> createPayment(
             @RequestBody PaymentRequest request,
@@ -35,25 +31,34 @@ public class PaymentController {
 
         Merchant merchant = (Merchant) httpRequest.getAttribute("merchant");
 
+        if (merchant == null) {
+            return ResponseEntity.status(401).body(
+                    Map.of("error", Map.of(
+                            "code", "AUTHENTICATION_ERROR",
+                            "description", "Invalid API credentials"
+                    ))
+            );
+        }
+
         var orders = jdbcTemplate.queryForList(
                 "SELECT amount, currency FROM orders WHERE id = ? AND merchant_id = ?",
                 request.order_id, merchant.getId()
         );
 
         if (orders.isEmpty()) {
-            return notFound("Order not found");
+            return ResponseEntity.status(404).body(
+                    Map.of("error", Map.of(
+                            "code", "NOT_FOUND_ERROR",
+                            "description", "Order not found"
+                    ))
+            );
         }
 
         int amount = (int) orders.get(0).get("amount");
         String currency = orders.get(0).get("currency").toString();
 
-        if (!"upi".equals(request.method) && !"card".equals(request.method)) {
-            return badRequest("BAD_REQUEST_ERROR", "Invalid payment method");
-        }
-
         String paymentId = generateId("pay_");
 
-        // ---------- UPI ----------
         if ("upi".equals(request.method)) {
 
             if (request.vpa == null || !isValidVpa(request.vpa)) {
@@ -62,8 +67,7 @@ public class PaymentController {
 
             jdbcTemplate.update("""
                 INSERT INTO payments
-                (id, order_id, merchant_id, amount, currency, method, status, vpa,
-                 created_at, updated_at)
+                (id, order_id, merchant_id, amount, currency, method, status, vpa, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, 'upi', 'processing', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """, paymentId, request.order_id, merchant.getId(), amount, currency, request.vpa);
 
@@ -83,93 +87,63 @@ public class PaymentController {
             );
         }
 
-        // ---------- CARD ----------
-        Card card = request.card;
+        if ("card".equals(request.method)) {
 
-        if (card == null || !isValidCard(card)) {
-            return badRequest("INVALID_CARD", "Card validation failed");
+            if (request.card == null || !isValidCard(request.card)) {
+                return badRequest("INVALID_CARD", "Card validation failed");
+            }
+
+            String network = detectNetwork(request.card.number);
+            String last4 = request.card.number.substring(request.card.number.length() - 4);
+
+            jdbcTemplate.update("""
+                INSERT INTO payments
+                (id, order_id, merchant_id, amount, currency, method, status,
+                 card_network, card_last4, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 'card', 'processing', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """, paymentId, request.order_id, merchant.getId(), amount, currency, network, last4);
+
+            processPayment(paymentId, false);
+
+            return ResponseEntity.status(HttpStatus.CREATED).body(
+                    Map.of(
+                            "id", paymentId,
+                            "order_id", request.order_id,
+                            "amount", amount,
+                            "currency", currency,
+                            "method", "card",
+                            "card_network", network,
+                            "card_last4", last4,
+                            "status", "processing",
+                            "created_at", Instant.now().toString()
+                    )
+            );
         }
 
-        String network = detectNetwork(card.number);
-        String last4 = card.number.substring(card.number.length() - 4);
-
-        jdbcTemplate.update("""
-            INSERT INTO payments
-            (id, order_id, merchant_id, amount, currency, method, status,
-             card_network, card_last4, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 'card', 'processing', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        """, paymentId, request.order_id, merchant.getId(), amount, currency, network, last4);
-
-        processPayment(paymentId, false);
-
-        return ResponseEntity.status(HttpStatus.CREATED).body(
-                Map.of(
-                        "id", paymentId,
-                        "order_id", request.order_id,
-                        "amount", amount,
-                        "currency", currency,
-                        "method", "card",
-                        "card_network", network,
-                        "card_last4", last4,
-                        "status", "processing",
-                        "created_at", Instant.now().toString()
-                )
-        );
+        return badRequest("BAD_REQUEST_ERROR", "Invalid payment method");
     }
 
-    // =========================
-    // GET PAYMENT
-    // =========================
-    @GetMapping("/{paymentId}")
-    public ResponseEntity<?> getPayment(
-            @PathVariable String paymentId,
-            HttpServletRequest request
-    ) {
-        Merchant merchant = (Merchant) request.getAttribute("merchant");
+    private void processPayment(String paymentId, boolean upi) {
+
+        boolean testMode = Boolean.parseBoolean(
+                System.getenv().getOrDefault("TEST_MODE", "false")
+        );
+
+        boolean forcedSuccess = Boolean.parseBoolean(
+                System.getenv().getOrDefault("TEST_PAYMENT_SUCCESS", "true")
+        );
+
+        int delay = Integer.parseInt(
+                System.getenv().getOrDefault("TEST_PROCESSING_DELAY", "1000")
+        );
 
         try {
-            return ResponseEntity.ok(
-                    jdbcTemplate.queryForObject("""
-                        SELECT id, order_id, amount, currency, method, status,
-                               vpa, card_network, card_last4,
-                               created_at, updated_at
-                        FROM payments
-                        WHERE id = ? AND merchant_id = ?
-                    """, new Object[]{paymentId, merchant.getId()}, (rs, rowNum) -> {
-                        Map<String, Object> map = new HashMap<>();
-                        map.put("id", rs.getString("id"));
-                        map.put("order_id", rs.getString("order_id"));
-                        map.put("amount", rs.getInt("amount"));
-                        map.put("currency", rs.getString("currency"));
-                        map.put("method", rs.getString("method"));
-                        map.put("status", rs.getString("status"));
+            Thread.sleep(testMode ? delay : (upi ? 6000 : 8000));
+        } catch (InterruptedException ignored) {}
 
-                        if ("upi".equals(rs.getString("method"))) {
-                            map.put("vpa", rs.getString("vpa"));
-                        } else {
-                            map.put("card_network", rs.getString("card_network"));
-                            map.put("card_last4", rs.getString("card_last4"));
-                        }
-
-                        map.put("created_at",
-                                rs.getTimestamp("created_at").toInstant().toString());
-                        map.put("updated_at",
-                                rs.getTimestamp("updated_at").toInstant().toString());
-                        return map;
-                    })
-            );
-        } catch (Exception e) {
-            return notFound("Payment not found");
-        }
-    }
-
-    // =========================
-    // PROCESSING
-    // =========================
-    private void processPayment(String paymentId, boolean upi) {
-        try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
-
-        boolean success = upi ? random.nextInt(10) < 9 : random.nextInt(100) < 95;
+        boolean success = testMode
+                ? forcedSuccess
+                : (upi ? random.nextInt(10) < 9 : random.nextInt(100) < 95);
 
         if (success) {
             jdbcTemplate.update(
@@ -188,16 +162,12 @@ public class PaymentController {
         }
     }
 
-    // =========================
-    // VALIDATION
-    // =========================
     private boolean isValidVpa(String vpa) {
         return Pattern.matches("^[a-zA-Z0-9._-]+@[a-zA-Z0-9]+$", vpa);
     }
 
     private boolean isValidCard(Card card) {
-        return card.number != null
-                && luhn(card.number)
+        return card.number != null && luhn(card.number)
                 && card.expiry_month != null
                 && card.expiry_year != null
                 && card.cvv != null;
@@ -226,9 +196,6 @@ public class PaymentController {
         return "unknown";
     }
 
-    // =========================
-    // UTIL
-    // =========================
     private String generateId(String prefix) {
         String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
         StringBuilder sb = new StringBuilder(prefix);
@@ -244,15 +211,6 @@ public class PaymentController {
         );
     }
 
-    private ResponseEntity<?> notFound(String msg) {
-        return ResponseEntity.status(404).body(
-                Map.of("error", Map.of("code", "NOT_FOUND_ERROR", "description", msg))
-        );
-    }
-
-    // =========================
-    // DTOs
-    // =========================
     static class PaymentRequest {
         public String order_id;
         public String method;

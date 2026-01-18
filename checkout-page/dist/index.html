@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Checkout</title>
+</head>
+<body>
+
+<div data-test-id="checkout-container">
+  <h2>Checkout Page Loaded</h2>
+  <p id="order"></p>
+</div>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const orderId = params.get("order_id");
+  document.getElementById("order").innerText =
+    orderId ? "Order ID: " + orderId : "No order id";
+</script>
+
+</body>
+</html>

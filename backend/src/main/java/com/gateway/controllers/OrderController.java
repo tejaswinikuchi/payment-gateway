@@ -6,10 +6,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
 
@@ -18,19 +16,31 @@ import java.util.Random;
 public class OrderController {
 
     private final JdbcTemplate jdbcTemplate;
+    private final Random random = new Random();
 
     public OrderController(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
     }
 
     // =========================
-    // CREATE ORDER (AUTH)
+    // CREATE ORDER
     // =========================
     @PostMapping
     public ResponseEntity<?> createOrder(
             @RequestBody OrderRequest request,
             HttpServletRequest httpRequest
     ) {
+
+        Merchant merchant = (Merchant) httpRequest.getAttribute("merchant");
+
+        if (merchant == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                    Map.of("error", Map.of(
+                            "code", "AUTHENTICATION_ERROR",
+                            "description", "Invalid API credentials"
+                    ))
+            );
+        }
 
         if (request.amount == null || request.amount < 100) {
             return ResponseEntity.badRequest().body(
@@ -41,21 +51,13 @@ public class OrderController {
             );
         }
 
-        Merchant merchant = (Merchant) httpRequest.getAttribute("merchant");
-
         String orderId = generateId("order_");
 
         jdbcTemplate.update("""
             INSERT INTO orders
-            (id, merchant_id, amount, currency, receipt, notes, status, created_at, updated_at)
-            VALUES (?, ?, ?, 'INR', ?, ?::jsonb, 'created', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        """,
-                orderId,
-                merchant.getId(),
-                request.amount,
-                request.receipt,
-                request.notes == null ? "{}" : request.notes.toString()
-        );
+            (id, merchant_id, amount, currency, status, created_at, updated_at)
+            VALUES (?, ?, ?, 'INR', 'created', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        """, orderId, merchant.getId(), request.amount);
 
         return ResponseEntity.status(HttpStatus.CREATED).body(
                 Map.of(
@@ -63,8 +65,6 @@ public class OrderController {
                         "merchant_id", merchant.getId().toString(),
                         "amount", request.amount,
                         "currency", "INR",
-                        "receipt", request.receipt,
-                        "notes", request.notes == null ? Map.of() : request.notes,
                         "status", "created",
                         "created_at", Instant.now().toString()
                 )
@@ -72,42 +72,17 @@ public class OrderController {
     }
 
     // =========================
-    // GET ORDER (AUTH)
+    // PUBLIC ORDER FETCH
     // =========================
-    @GetMapping("/{orderId}")
-    public ResponseEntity<?> getOrder(
-            @PathVariable String orderId,
-            HttpServletRequest request
-    ) {
+    @GetMapping("/{orderId}/public")
+    public ResponseEntity<?> getPublicOrder(@PathVariable String orderId) {
 
-        Merchant merchant = (Merchant) request.getAttribute("merchant");
+        var rows = jdbcTemplate.queryForList(
+                "SELECT id, amount, currency, status FROM orders WHERE id = ?",
+                orderId
+        );
 
-        try {
-            return ResponseEntity.ok(
-                    jdbcTemplate.queryForObject(
-                            """
-                            SELECT id, merchant_id, amount, currency, receipt, notes,
-                                   status, created_at, updated_at
-                            FROM orders
-                            WHERE id = ? AND merchant_id = ?
-                            """,
-                            new Object[]{orderId, merchant.getId()},
-                            (rs, rowNum) -> {
-                                Map<String, Object> map = new HashMap<>();
-                                map.put("id", rs.getString("id"));
-                                map.put("merchant_id", rs.getString("merchant_id"));
-                                map.put("amount", rs.getInt("amount"));
-                                map.put("currency", rs.getString("currency"));
-                                map.put("receipt", rs.getString("receipt"));
-                                map.put("notes", rs.getObject("notes"));
-                                map.put("status", rs.getString("status"));
-                                map.put("created_at", rs.getTimestamp("created_at").toInstant().toString());
-                                map.put("updated_at", rs.getTimestamp("updated_at").toInstant().toString());
-                                return map;
-                            }
-                    )
-            );
-        } catch (Exception e) {
+        if (rows.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
                     Map.of("error", Map.of(
                             "code", "NOT_FOUND_ERROR",
@@ -115,34 +90,17 @@ public class OrderController {
                     ))
             );
         }
-    }
 
-    // =========================
-    // PUBLIC ORDER (NO AUTH)
-    // =========================
-    @GetMapping("/{orderId}/public")
-    public Map<String, Object> getPublicOrder(@PathVariable String orderId) {
+        var row = rows.get(0);
 
-        try {
-            return jdbcTemplate.queryForObject(
-                    """
-                    SELECT id, amount, currency, status
-                    FROM orders
-                    WHERE id = ?
-                    """,
-                    new Object[]{orderId},
-                    (rs, rowNum) -> {
-                        Map<String, Object> map = new HashMap<>();
-                        map.put("id", rs.getString("id"));
-                        map.put("amount", rs.getInt("amount"));
-                        map.put("currency", rs.getString("currency"));
-                        map.put("status", rs.getString("status"));
-                        return map;
-                    }
-            );
-        } catch (Exception e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found");
-        }
+        return ResponseEntity.ok(
+                Map.of(
+                        "id", row.get("id"),
+                        "amount", row.get("amount"),
+                        "currency", row.get("currency"),
+                        "status", row.get("status")
+                )
+        );
     }
 
     // =========================
@@ -150,7 +108,6 @@ public class OrderController {
     // =========================
     private String generateId(String prefix) {
         String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        Random random = new Random();
         StringBuilder sb = new StringBuilder(prefix);
         for (int i = 0; i < 16; i++) {
             sb.append(chars.charAt(random.nextInt(chars.length())));
@@ -158,12 +115,7 @@ public class OrderController {
         return sb.toString();
     }
 
-    // =========================
-    // REQUEST DTO
-    // =========================
     static class OrderRequest {
         public Integer amount;
-        public String receipt;
-        public Map<String, Object> notes;
     }
 }
